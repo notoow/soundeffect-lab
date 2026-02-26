@@ -77,15 +77,9 @@
                 if (!response.ok) throw new Error('Proxy blocked or server down.');
                 let html = await response.text();
 
-                // 2. HTML 내 모든 상대 경로를 원본 도메인 절대 경로로 변환.
-                // CSS, 오디오, 이미지 등 자원 연결고리 복원
-                html = html.replace(/src="\/(.*?)"/g, 'src="https://soundeffect-lab.info/$1"');
-                html = html.replace(/src='\/(.*?)'/g, "src='https://soundeffect-lab.info/$1'");
-                html = html.replace(/href="\/(.*?)"/g, 'href="https://soundeffect-lab.info/$1"');
-                html = html.replace(/href='\/(.*?)'/g, "href='https://soundeffect-lab.info/$1'");
-                html = html.replace(/url\(\/(.*?)\)/g, 'url(https://soundeffect-lab.info/$1)');
-
-                // 3. 내부 클릭 링크(a 태그)는 다시 우리 GitHub Pages가 가로채어 번역을 유지하도록 (?p=파라미터 형태)
+                // 2. HTML `<head>` 최상단에 `<base>` 태그를 주입하여 모든 CSS, 이미지, 오디오 경로를 원본 사이트로 자동 연결합니다.
+                // 정규식 치환 방식보다 원본 호환성이 월등히 뛰어난 해결책입니다.
+                html = html.replace(/<head[^>]*>/i, match => match + '<base href="https://soundeffect-lab.info/">');
                 // (이 처리는 나중에 DOM 투입 후 클릭 이벤트로 처리)
 
                 // 4. 번역 스크립트와 저작권 배너 강제 주입
