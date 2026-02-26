@@ -98,11 +98,12 @@
                             if (a.href.includes('soundeffect-lab.info')) {
                                 e.preventDefault();
                                 const newPath = a.href.replace('https://soundeffect-lab.info/', '');
-                                // 깃허브 페이지의 현재 주소에 파라미터만 붙여서 치환
-                                window.location.href = window.location.pathname + '?p=' + newPath;
+                                // 깃허브 페이지의 현재 주소에 파라미터만 붙여서 브라우저 이동
+                                // (base 태그의 영향을 피하기 위해 window.location.origin 등 절대주소를 사용합니다)
+                                window.location.href = window.location.origin + window.location.pathname + '?p=' + encodeURIComponent(newPath);
                             } else if (a.getAttribute('href') && a.getAttribute('href').startsWith('/')) {
                                 e.preventDefault();
-                                window.location.href = window.location.pathname + '?p=' + a.getAttribute('href').substring(1);
+                                window.location.href = window.location.origin + window.location.pathname + '?p=' + encodeURIComponent(a.getAttribute('href').substring(1));
                             }
                         }
                     });
