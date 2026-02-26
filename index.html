@@ -187,12 +187,12 @@
                     }
 
                     // 4. 구글 번역 스크립트 연결
-                    window.isTranslating = false;
                     window.translationCache = {};
                     
-                    async function translateBatch(texts) {
+                    async function translateText(texts) {
                         try {
-                            const joinedText = texts.join('\\n___|||___\\n');
+                            const separator = ' \\n==========\\n ';
+                            const joinedText = texts.join(separator);
                             const encodedData = new URLSearchParams();
                             encodedData.append('q', joinedText);
                     
@@ -205,14 +205,28 @@
                             const data = await res.json();
                             if (data && data[0]) {
                                 const fullTranslatedText = data[0].map(item => item[0]).join('');
-                                const splitTexts = fullTranslatedText.split(/\\s*___\\|\\|\\|___\\s*/);
-                                if (splitTexts.length === texts.length) return splitTexts.map(t => t.trim());
+                                const splitTexts = fullTranslatedText.split(/\\s*==========\\s*/);
+                                
+                                if (splitTexts.length === texts.length) {
+                                    return splitTexts.map(t => t.trim());
+                                } else {
+                                    // 구분자가 깨지는 경우 (예: 특수문자나 배열 길이 변화 시)
+                                    console.warn('번역 구분자 인식 오류: 안전 모드로 개별 번역 실행합니다.');
+                                    return null;
+                                }
                             }
-                        } catch (e) { }
-                        return texts;
+                        } catch (e) {
+                            console.error('API 번역 실패', e);
+                        }
+                        return null;
                     }
 
+                    window.isQueueRunning = false;
+
                     async function queueTranslation() {
+                       if (window.isQueueRunning) return;
+                       window.isQueueRunning = true;
+                       
                        const pendingNodes = [];
                        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
                        let node;
@@ -223,36 +237,60 @@
                            let text = node.nodeValue.trim();
                            const hasJapanese = /[\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FAF\\u3000-\\u303F]/.test(text);
                            
-                           if (text.length > 0 && hasJapanese && !node.isTranslating) {
+                           // _isTranslating 플래그를 영구적으로 달아서 다시 빈복되지 않도록 무한루프(API 차단) 방지
+                           if (text.length > 0 && hasJapanese && !node._isTranslating) {
                                if (window.translationCache[text]) {
                                    node.nodeValue = node.nodeValue.replace(text, window.translationCache[text]);
                                } else {
-                                   node.isTranslating = true;
+                                   node._isTranslating = true;
                                    pendingNodes.push({ node, text });
                                }
                            }
                        }
 
                        if (pendingNodes.length > 0) {
-                           for (let i = 0; i < pendingNodes.length; i += 60) {
-                               const batch = pendingNodes.slice(i, i + 60);
+                           console.log('총 번역 필요 항목:', pendingNodes.length, '개');
+                           const batchSize = 30; // 쪼개서 번역
+                           
+                           for (let i = 0; i < pendingNodes.length; i += batchSize) {
+                               const batch = pendingNodes.slice(i, i + batchSize);
                                const textsToTranslate = batch.map(item => item.text);
                                
-                               translateBatch(textsToTranslate).then(results => {
+                               const results = await translateText(textsToTranslate);
+                               
+                               if (results && results.length === batch.length) {
                                    batch.forEach((item, index) => {
                                        if (results[index] && results[index] !== item.text) {
-                                           if (item.node.parentNode) item.node.nodeValue = item.node.nodeValue.replace(item.text, results[index]);
+                                           if (item.node.parentNode) {
+                                               item.node.nodeValue = item.node.nodeValue.replace(item.text, results[index]);
+                                           }
                                            window.translationCache[item.text] = results[index];
                                        }
-                                       item.node.isTranslating = false;
                                    });
-                               });
-                               await new Promise(r => setTimeout(r, 600)); 
+                               } else {
+                                   // 만약 구분자가 망가져서 한 번에 번역이 실패했다면 (예: 생활[1], 기타 특수문자 문장들)
+                                   // 구글 API 차단을 피해 1개씩 안전하게 개별 번역하는 fallback 로직
+                                   for (let j = 0; j < batch.length; j++) {
+                                       const singleItem = batch[j];
+                                       const singleResults = await translateText([singleItem.text]);
+                                       if (singleResults && singleResults[0] && singleResults[0] !== singleItem.text) {
+                                           if (singleItem.node.parentNode) {
+                                               singleItem.node.nodeValue = singleItem.node.nodeValue.replace(singleItem.text, singleResults[0]);
+                                           }
+                                           window.translationCache[singleItem.text] = singleResults[0];
+                                       }
+                                       // 개별 API 요청 간격
+                                       await new Promise(r => setTimeout(r, 200)); 
+                                   }
+                               }
+                               // 구글 API 429 Too Many Requests 소프트 밴을 피하기 위한 고의적인 0.8초 딜레이
+                               await new Promise(r => setTimeout(r, 800)); 
                            }
                        }
+                       window.isQueueRunning = false;
                     }
 
-                    // 모든 UI 반영
+                    // 모든 UI 반영 (중복 실행 방지)
                     setTimeout(() => { queueTranslation(); addBatchDownloadButton(); addCopyrightBanner(); }, 300);
                     setTimeout(() => { queueTranslation(); addBatchDownloadButton(); addCopyrightBanner(); }, 1500);
                     
